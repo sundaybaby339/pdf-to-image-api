@@ -14,8 +14,14 @@ app.post('/pdf-to-image', async (req, res) => {
       return res.status(400).send('Missing or invalid PDF data');
     }
 
+    console.log(`PDF Buffer Size: ${pdfBuffer.length} bytes`); // Debug buffer size
+
     const pdfPath = '/tmp/input.pdf';
     await fs.writeFile(pdfPath, pdfBuffer);
+
+    // Kiểm tra file có tồn tại không
+    const fileStats = await fs.stat(pdfPath);
+    console.log(`File created: ${pdfPath}, Size: ${fileStats.size} bytes`); // Debug file
 
     const browser = await puppeteer.launch({
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
