@@ -1,6 +1,7 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
 const fs = require('fs').promises;
+const path = require('path'); // Thêm module path để xử lý đường dẫn
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,21 +17,30 @@ app.post('/pdf-to-image', async (req, res) => {
 
     console.log(`PDF Buffer Size: ${pdfBuffer.length} bytes`); // Debug buffer size
 
-    const pdfPath = '/tmp/input.pdf';
+    // Đảm bảo đường dẫn tuyệt đối cho file tạm
+    const pdfPath = path.join('/tmp', 'input.pdf');
     await fs.writeFile(pdfPath, pdfBuffer);
 
     // Kiểm tra file có tồn tại không
     const fileStats = await fs.stat(pdfPath);
-    console.log(`File created: ${pdfPath}, Size: ${fileStats.size} bytes`); // Debug file
+    console.log(`File created: ${pdfPath}, Size: ${fileStats.size} bytes`);
 
     const browser = await puppeteer.launch({
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
     const page = await browser.newPage();
 
-    await page.goto(`file://${pdfPath}`, { waitUntil: 'networkidle0', timeout: 60000 });
+    // Sử dụng đường dẫn tuyệt đối với file:///
+    const fileUrl = `file://${pdfPath}`;
+    console.log(`Opening PDF at: ${fileUrl}`); // Debug URL
+
+    // Mở file PDF
+    await page.goto(fileUrl, { waitUntil: 'networkidle0', timeout: 60000 });
+
+    // Đặt kích thước viewport
     await page.setViewport({ width: 1280, height: 720 });
 
+    // Chụp ảnh màn hình
     const screenshot = await page.screenshot({ fullPage: true });
 
     await browser.close();
