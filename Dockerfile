@@ -1,8 +1,16 @@
-# Sử dụng Node.js làm base image
+# Stage 1: Cài đặt GraphicsMagick và Ghostscript
+FROM node:18 AS builder
+
+# Cố gắng chạy apt-get trong stage này
+RUN apt-get update && apt-get install -y graphicsmagick ghostscript
+
+# Stage 2: Tạo image chính
 FROM node:18
 
-# Cài đặt GraphicsMagick và Ghostscript
-RUN apt-get update && apt-get install -y graphicsmagick ghostscript
+# Copy các binary từ stage 1 (nếu có)
+COPY --from=builder /usr/bin/gm /usr/bin/gm
+COPY --from=builder /usr/bin/gs /usr/bin/gs
+COPY --from=builder /usr/lib /usr/lib
 
 # Thiết lập thư mục làm việc
 WORKDIR /app
