@@ -1,46 +1,32 @@
 const express = require('express');
-const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
-const { fromPath } = require('pdf2pic');
+const puppeteer = require('puppeteer');
 
 const app = express();
-const upload = multer({ dest: 'uploads/' });
+const PORT = process.env.PORT || 3000;
 
-app.post('/convert', upload.single('pdf'), async (req, res) => {
-  if (!req.file) return res.status(400).send('No file uploaded.');
-
-  const outputPath = path.join(__dirname, 'output');
-  if (!fs.existsSync(outputPath)) fs.mkdirSync(outputPath);
-
-  const options = {
-    density: 150,
-    saveFilename: 'converted',
-    savePath: outputPath,
-    format: 'png',
-    width: 800,
-    height: 1000,
-  };
-
-  const storeAsImage = fromPath(req.file.path, options);
-
-  try {
-    const result = await storeAsImage(1); // Chuyển trang đầu tiên
-    const imageBuffer = fs.readFileSync(result.path);
-    const base64Image = imageBuffer.toString('base64');
-
-    res.json({ image_base64: base64Image });
-  } catch (error) {
-    res.status(500).send('Failed to convert PDF');
-  } finally {
-    fs.unlinkSync(req.file.path);
+app.get('/screenshot', async (req, res) => {
+  const { url } = req.query;
+  if (!url) {
+    return res.status(400).send('Missing URL');
   }
+
+  const browser = await puppeteer.launch({
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+  const page = await browser.newPage();
+  await page.goto(url, { waitUntil: 'networkidle2' });
+
+  const screenshot = await page.screenshot({ fullPage: true });
+  await browser.close();
+
+  res.contentType('image/png');
+  res.send(screenshot);
 });
 
 app.get('/', (req, res) => {
-  res.send('PDF to Image API is running');
+  res.send('Puppeteer Server is running.');
 });
 
-app.listen(3000, () => {
-  console.log('Server started on http://localhost:3000');
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
