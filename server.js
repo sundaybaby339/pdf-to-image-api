@@ -1,102 +1,98 @@
 const express = require('express');
-const puppeteer = require('puppeteer');
+const { Converter } = require('pdf-poppler');
+const fs = require('fs');
+const path = require('path');
+const archiver = require('archiver');
+const util = require('util');
+const rimraf = require('rimraf');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware để nhận dữ liệu PDF binary
+// Middleware để nhận PDF binary
 app.use(express.raw({ type: 'application/pdf', limit: '10mb' }));
 
-// Endpoint chuyển PDF thành ảnh
+// API: Chuyển PDF thành nhiều ảnh rồi nén zip
 app.post('/pdf-to-image', async (req, res) => {
+  const tempDir = '/tmp';
+  const tempPdfPath = path.join(tempDir, 'temp.pdf');
+  const outputPrefix = 'page';
+
   try {
-    // Kiểm tra dữ liệu đầu vào
     const pdfBuffer = req.body;
     if (!pdfBuffer || pdfBuffer.length === 0) {
-      console.error('Invalid PDF data: Buffer is empty');
       return res.status(400).send('Missing or invalid PDF data');
     }
 
-    console.log(`Received PDF Buffer Size: ${pdfBuffer.length} bytes`); // Debug
+    // Bước 1: Lưu PDF
+    fs.writeFileSync(tempPdfPath, pdfBuffer);
 
-    // Khởi động Puppeteer
-    const browser = await puppeteer.launch({
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      headless: 'new', // Đảm bảo dùng headless mode mới
-      timeout: 60000, // Tăng timeout khởi động browser
-    });
+    const options = {
+      format: 'png',
+      out_dir: tempDir,
+      out_prefix: outputPrefix,
+      dpi: 150,
+    };
 
-    const page = await browser.newPage();
+    // Bước 2: Convert PDF sang PNG
+    await Converter.convert(tempPdfPath, options);
 
-    // Tăng timeout cho các thao tác trên page
-    await page.setDefaultNavigationTimeout(60000);
+    // Bước 3: Gom tất cả ảnh page-*.png
+    const imageFiles = fs.readdirSync(tempDir)
+      .filter(file => file.startsWith(outputPrefix) && file.endsWith('.png'))
+      .map(file => path.join(tempDir, file));
 
-    // Chuyển PDF buffer thành base64
-    const pdfBase64 = pdfBuffer.toString('base64');
-    const pdfDataUrl = `data:application/pdf;base64,${pdfBase64}`;
-
-    console.log('Opening PDF via data URL'); // Debug
-
-    // Mở PDF bằng data URL
-    await page.goto(pdfDataUrl, { waitUntil: 'networkidle0', timeout: 60000 });
-
-    // Đặt kích thước viewport để chụp ảnh
-    await page.setViewport({ width: 1280, height: 720 });
-
-    // Chụp ảnh màn hình
-    const screenshot = await page.screenshot({ fullPage: true });
-
-    console.log('Screenshot captured successfully'); // Debug
-
-    // Đóng browser
-    await browser.close();
-
-    // Trả về ảnh PNG
-    res.contentType('image/png');
-    res.send(screenshot);
-  } catch (error) {
-    console.error('Error in /pdf-to-image:', error.message); // Debug lỗi
-    res.status(500).send(`Error processing PDF: ${error.message}`);
-  }
-});
-
-// Endpoint chụp ảnh màn hình từ URL (giữ nguyên từ code ban đầu)
-app.get('/screenshot', async (req, res) => {
-  try {
-    const { url } = req.query;
-    if (!url) {
-      return res.status(400).send('Missing URL');
+    if (imageFiles.length === 0) {
+      throw new Error('No images generated from PDF');
     }
 
-    const browser = await puppeteer.launch({
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      headless: 'new',
-      timeout: 60000,
-    });
+    // Bước 4: Tạo file zip
+    const zipPath = path.join(tempDir, 'images.zip');
+    const output = fs.createWriteStream(zipPath);
+    const archive = archiver('zip', { zlib: { level: 9 } });
 
-    const page = await browser.newPage();
-    await page.setDefaultNavigationTimeout(60000);
+    archive.pipe(output);
 
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+    for (const filePath of imageFiles) {
+      archive.file(filePath, { name: path.basename(filePath) });
+    }
 
-    const screenshot = await page.screenshot({ fullPage: true });
+    await archive.finalize();
 
-    await browser.close();
+    // Chờ zip xong
+    await new Promise(resolve => output.on('close', resolve));
 
-    res.contentType('image/png');
-    res.send(screenshot);
+    const zipBuffer = fs.readFileSync(zipPath);
+
+    // Bước 5: Trả file zip
+    res.contentType('application/zip');
+    res.send(zipBuffer);
+
   } catch (error) {
-    console.error('Error in /screenshot:', error.message);
-    res.status(500).send(`Error capturing screenshot: ${error.message}`);
+    console.error('Error:', error.message);
+    res.status(500).send(`Error processing PDF: ${error.message}`);
+  } finally {
+    // Bước 6: Dọn rác /tmp
+    try {
+      const files = fs.readdirSync(tempDir);
+      for (const file of files) {
+        if (file.startsWith(outputPrefix) || file === 'temp.pdf' || file === 'images.zip') {
+          fs.unlinkSync(path.join(tempDir, file));
+        }
+      }
+      console.log('Cleaned temporary files.');
+    } catch (cleanupError) {
+      console.error('Error cleaning up temporary files:', cleanupError.message);
+    }
   }
 });
 
-// Endpoint gốc
+// API gốc
 app.get('/', (req, res) => {
-  res.send('Puppeteer Server is running.');
+  res.send('PDF to Image server is running.');
 });
 
-// Khởi động server
+// Start server
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });
