@@ -1,98 +1,78 @@
 const express = require('express');
-const { Converter } = require('pdf-poppler');
 const fs = require('fs');
 const path = require('path');
+const { PdfConverter } = require('pdf-poppler');
 const archiver = require('archiver');
-const util = require('util');
-const rimraf = require('rimraf');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware để nhận PDF binary
-app.use(express.raw({ type: 'application/pdf', limit: '10mb' }));
+app.use(express.raw({ type: 'application/pdf', limit: '20mb' }));
 
-// API: Chuyển PDF thành nhiều ảnh rồi nén zip
+// Endpoint chuyển PDF thành zip ảnh
 app.post('/pdf-to-image', async (req, res) => {
-  const tempDir = '/tmp';
-  const tempPdfPath = path.join(tempDir, 'temp.pdf');
-  const outputPrefix = 'page';
+  const tempPdfPath = '/tmp/temp.pdf';
+  const outputDir = '/tmp/pdf-images';
 
   try {
+    // Kiểm tra dữ liệu
     const pdfBuffer = req.body;
     if (!pdfBuffer || pdfBuffer.length === 0) {
       return res.status(400).send('Missing or invalid PDF data');
     }
 
-    // Bước 1: Lưu PDF
+    // Ghi file PDF tạm
     fs.writeFileSync(tempPdfPath, pdfBuffer);
 
-    const options = {
-      format: 'png',
-      out_dir: tempDir,
-      out_prefix: outputPrefix,
-      dpi: 150,
-    };
-
-    // Bước 2: Convert PDF sang PNG
-    await Converter.convert(tempPdfPath, options);
-
-    // Bước 3: Gom tất cả ảnh page-*.png
-    const imageFiles = fs.readdirSync(tempDir)
-      .filter(file => file.startsWith(outputPrefix) && file.endsWith('.png'))
-      .map(file => path.join(tempDir, file));
-
-    if (imageFiles.length === 0) {
-      throw new Error('No images generated from PDF');
+    // Tạo thư mục output nếu chưa có
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir);
     }
 
-    // Bước 4: Tạo file zip
-    const zipPath = path.join(tempDir, 'images.zip');
+    // Convert PDF -> PNG
+    const converter = new PdfConverter(tempPdfPath);
+    await converter.convert(outputDir, {
+      format: 'png',
+      outPrefix: 'page',
+      page: null,
+      dpi: 150
+    });
+
+    // Zip các ảnh
+    const zipPath = '/tmp/images.zip';
     const output = fs.createWriteStream(zipPath);
     const archive = archiver('zip', { zlib: { level: 9 } });
 
+    output.on('close', () => {
+      // Trả file zip
+      res.download(zipPath, 'images.zip', () => {
+        // Xoá file tạm
+        fs.unlinkSync(tempPdfPath);
+        fs.unlinkSync(zipPath);
+        fs.rmSync(outputDir, { recursive: true, force: true });
+      });
+    });
+
+    archive.on('error', err => { throw err; });
+
     archive.pipe(output);
-
-    for (const filePath of imageFiles) {
-      archive.file(filePath, { name: path.basename(filePath) });
-    }
-
-    await archive.finalize();
-
-    // Chờ zip xong
-    await new Promise(resolve => output.on('close', resolve));
-
-    const zipBuffer = fs.readFileSync(zipPath);
-
-    // Bước 5: Trả file zip
-    res.contentType('application/zip');
-    res.send(zipBuffer);
-
+    archive.directory(outputDir, false);
+    archive.finalize();
   } catch (error) {
     console.error('Error:', error.message);
     res.status(500).send(`Error processing PDF: ${error.message}`);
-  } finally {
-    // Bước 6: Dọn rác /tmp
-    try {
-      const files = fs.readdirSync(tempDir);
-      for (const file of files) {
-        if (file.startsWith(outputPrefix) || file === 'temp.pdf' || file === 'images.zip') {
-          fs.unlinkSync(path.join(tempDir, file));
-        }
-      }
-      console.log('Cleaned temporary files.');
-    } catch (cleanupError) {
-      console.error('Error cleaning up temporary files:', cleanupError.message);
-    }
+    // Dọn file tạm nếu lỗi
+    if (fs.existsSync(tempPdfPath)) fs.unlinkSync(tempPdfPath);
+    if (fs.existsSync(outputDir)) fs.rmSync(outputDir, { recursive: true, force: true });
   }
 });
 
-// API gốc
+// Check server
 app.get('/', (req, res) => {
-  res.send('PDF to Image server is running.');
+  res.send('PDF to Image Server is running.');
 });
 
-// Start server
+// Start app
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
