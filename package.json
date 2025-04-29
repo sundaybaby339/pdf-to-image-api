@@ -1,13 +1,7 @@
 {
-  "name": "puppeteer-server",
-  "version": "1.0.0",
-  "description": "A simple Puppeteer screenshot server",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
   "dependencies": {
     "express": "^4.17.1",
-    "puppeteer": "^19.11.1"
+    "pdf-poppler": "^1.1.0",
+    "archiver": "^5.3.1"
   }
 }
