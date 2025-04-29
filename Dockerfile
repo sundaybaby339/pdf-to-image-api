@@ -1,22 +1,22 @@
 # Base image
 FROM node:18
 
-# Cài thêm poppler-utils
+# Install poppler-utils for PDF processing
 RUN apt-get update && apt-get install -y \
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Làm việc trong thư mục /app
+# Set working directory
 WORKDIR /app
 
-# Copy package.json và cài đặt
+# Copy and install dependencies
 COPY package*.json ./
 RUN npm install
 
-# Copy source code
+# Copy application code
 COPY . .
 
-# Expose port
+# Expose app port
 EXPOSE 3000
 
 # Start server
