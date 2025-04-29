@@ -1,7 +1,14 @@
 {
+  "name": "pdf-poppler-server",
+  "version": "1.0.0",
+  "description": "Convert PDF to Images using pdf-poppler",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
   "dependencies": {
     "express": "^4.17.1",
-    "pdf-poppler": "^1.0.0",
-    "archiver": "^5.3.1"
+    "archiver": "^5.3.1",
+    "pdf-poppler": "git+https://github.com/maugenst/pdf-poppler.git"
   }
 }
